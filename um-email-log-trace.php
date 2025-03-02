@@ -2,7 +2,7 @@
 /**
  * Plugin Name:         Ultimate Member - Email Log Trace
  * Description:         Extension to Ultimate Member for logging email activities.
- * Version:             1.0.0 development
+ * Version:             1.1.0 development
  * Requires PHP:        7.4
  * Author:              Miss Veronica
  * License:             GPL v3 or later
@@ -31,6 +31,17 @@
         add_filter( 'um_email_template_path',                array( $this, 'um_email_template_path_logging' ), 99999, 3 );
         add_action( 'um_dispatch_email',                     array( $this, 'um_dispatch_email_logging' ), 20, 3 );
         add_filter( 'wp_mail',                               array( $this, 'wp_mail_logging' ), 10, 1 );
+
+        add_action( 'um_after_user_is_set_as_awaiting_email_confirmation',
+                                                             array( $this, 'um_after_user_is_set_as_awaiting_email_confirmation_logging' ), 10, 1 );
+        add_action( 'um_after_user_is_inactive',             array( $this, 'um_after_user_is_inactive_logging' ), 10, 1 );
+        add_action( 'um_after_user_is_rejected',             array( $this, 'um_after_user_is_rejected_logging' ), 10, 1 );
+        add_action( 'um_after_user_is_set_as_pending',       array( $this, 'um_after_user_is_set_as_pending_logging' ), 10, 1 );
+        add_action( 'um_after_user_is_approved',             array( $this, 'um_after_user_is_approved_logging' ), 10, 1 );
+        add_action( 'um_after_user_is_reactivated',          array( $this, 'um_after_user_is_reactivated_logging' ), 10, 1 );
+
+        add_filter( 'pre_as_enqueue_async_action',           array( $this, 'pre_as_enqueue_async_action_logging' ), 99999, 2 ); 
+        
     }
 
     public function um_registration_user_role_logging( $user_role, $args, $form_data ) {
@@ -61,31 +72,32 @@
         file_put_contents( $this->file, $this->get_time() . 'filter um_disable_email_notification_sending' . "\n", FILE_APPEND );
         file_put_contents( $this->file, '6 bool: ' . intval( $bool ) . "\n", FILE_APPEND );
         file_put_contents( $this->file, '7 email: ' . $this->verify_log_email( $email ) . "\n", FILE_APPEND );
-        file_put_contents( $this->file, '8 template: ' . $template . "\n\n", FILE_APPEND );
+        file_put_contents( $this->file, '8 template: ' . $this->email_status( $template ) . "\n\n", FILE_APPEND );
         return $bool;
     }
 
     public function um_before_email_notification_logging( $email, $template ) {
         file_put_contents( $this->file, $this->get_time() . 'filter um_before_email_notification_sending' . "\n", FILE_APPEND );
         file_put_contents( $this->file, '9 email: ' . $this->verify_log_email( $email ) . "\n", FILE_APPEND );
-        file_put_contents( $this->file, '10 template: ' . $template . "\n\n", FILE_APPEND );
+        file_put_contents( $this->file, '10 template: ' . $this->email_status( $template ) . "\n\n", FILE_APPEND );
     }
 
     public function um_email_send_subject_logging( $subject, $template ) {
         file_put_contents( $this->file, $this->get_time() . 'filter um_email_send_subject' . "\n", FILE_APPEND );
         file_put_contents( $this->file, '11 subject: ' . $subject . "\n", FILE_APPEND );
-        file_put_contents( $this->file, '12 template: ' . $template . "\n\n", FILE_APPEND );
+        file_put_contents( $this->file, '12 template: ' . $this->email_status( $template ) . "\n\n", FILE_APPEND );
         return $subject;
     }
 
     public function um_email_template_path_logging( $located, $slug, $args ) {
         file_put_contents( $this->file, $this->get_time() . 'filter um_email_template_path' . "\n", FILE_APPEND );
-        file_put_contents( $this->file, '13 slug: ' . $slug . "\n", FILE_APPEND );
+        $status = ( empty( UM()->options()->get( "{$slug}_on" ) )) ? 'Email not active' : 'Email active';
+        file_put_contents( $this->file, '13 slug: ' . $this->email_status( $slug ) . "\n", FILE_APPEND );
         file_put_contents( $this->file, '14 located: ' . str_replace( ABSPATH, '...', $located ) . "\n", FILE_APPEND );
         if ( file_exists( $located )) {
             $contents = file_get_contents( $located );
             $contents = ( empty( $contents )) ? 'empty' : $contents;
-            file_put_contents( $this->file, '15 templete size: ' . strlen( $contents ) . "\n\n", FILE_APPEND );
+            file_put_contents( $this->file, '15 templete size: ' . strlen( $contents ) . " bytes\n\n", FILE_APPEND );
         } else {
             file_put_contents( $this->file, '15 templete not found' . "\n\n", FILE_APPEND );
         }
@@ -95,17 +107,64 @@
     public function um_dispatch_email_logging( $user_email, $template, $args ) {
         file_put_contents( $this->file, $this->get_time() . 'filter um_dispatch_email' . "\n", FILE_APPEND );
         file_put_contents( $this->file, '16 user_email: ' . $this->verify_log_email( $user_email ) . "\n", FILE_APPEND );
-        file_put_contents( $this->file, '17 template: ' . $template . "\n\n", FILE_APPEND );
+        $status = ( empty( UM()->options()->get( "{$template}_on" ) )) ? 'Email not active' : 'Email active';
+        file_put_contents( $this->file, '17 template: ' . $this->email_status( $template ) . "\n\n", FILE_APPEND );
     }
 
     public function wp_mail_logging( $args ) {
         file_put_contents( $this->file, $this->get_time() . 'filter wp_mail' . "\n", FILE_APPEND );
-        file_put_contents( $this->file, '18 to user_email: ' . $this->verify_log_email( $args['to'] ) . "\n\n", FILE_APPEND );
+        file_put_contents( $this->file, '20 Outgoing email in WP to user_email: ' . $this->verify_log_email( $args['to'] ) . "\n\n", FILE_APPEND );
         return  $args;
     }
 
+    public function um_after_user_is_set_as_awaiting_email_confirmation_logging( $user_id ) {
+        file_put_contents( $this->file, $this->get_time() . 'filter om_after_user_is_set_as_awaiting_email_confirmation' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '31 user_id: ' . $user_id . "\n\n", FILE_APPEND );
+    }
+
+    public function um_after_user_is_inactive_logging( $user_id ) {
+        file_put_contents( $this->file, $this->get_time() . 'filter um_after_user_is_inactive' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '32 user_id: ' . $user_id . "\n\n", FILE_APPEND );  
+    }
+
+    public function um_after_user_is_rejected_logging( $user_id ) {
+        file_put_contents( $this->file, $this->get_time() . 'filter um_after_user_is_rejected' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '33 user_id: ' . $user_id . "\n\n", FILE_APPEND );
+    }
+
+    public function um_after_user_is_set_as_pending_logging( $user_id ) {
+        file_put_contents( $this->file, $this->get_time() . 'filter um_after_user_is_set_as_pending' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '34 user_id: ' . $user_id . "\n\n", FILE_APPEND );
+    }
+
+    public function um_after_user_is_approved_logging( $user_id ) {
+        file_put_contents( $this->file, $this->get_time() . 'filter um_after_user_is_approved' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '35 user_id: ' . $user_id . "\n\n", FILE_APPEND );
+    }
+
+    public function um_after_user_is_reactivated_logging( $user_id ) {
+        file_put_contents( $this->file, $this->get_time() . 'filter um_after_user_is_reactivated' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '36 user_id: ' . $user_id . "\n\n", FILE_APPEND );
+    }
+
+    public function pre_as_enqueue_async_action_logging( $short_circuit, $hook ) {
+        $sc = ( $short_circuit == null ) ? 'null' : 'not null !!! ' . intval( $short_circuit );
+        file_put_contents( $this->file, $this->get_time() . 'filter pre_as_enqueue_async_action' . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '40 Action hook: ' . $hook . "\n", FILE_APPEND );
+        file_put_contents( $this->file, '41 short_circuit: ' . $sc . "\n", FILE_APPEND );
+        $bool = ( UM()->maybe_action_scheduler()->is_enabled() ) ? 'true' : 'false';
+        $scheuled = '';
+        if ( $bool == 'true' ) {
+            $cron_job = wp_next_scheduled( 'action_scheduler_run_queue' );
+            $scheuled = ' Next time for cronjob: ' . date_i18n( 'Y-m-d H:i:s ', $cron_job );
+        }
+        file_put_contents( $this->file, '42 Action Scheduler active: ' . $bool . $scheuled . "\n\n", FILE_APPEND );
+        return $short_circuit;
+    }
+
     public function verify_log_email( $email ) {
-        $res = ( is_email( $email )) ? 'OK email' : 'invlid email';
+        $user = get_user_by( 'email', $email );
+        $res = ( is_email( $email )) ? 'OK valid email for user_id ' . $user->ID : 'invlid email';
         $res = ( bloginfo( 'admin_email' )   == $email ) ? 'WP Admin email' : $res;
         $res = ( get_option( 'admin_email' ) == $email ) ? 'UM Admin email' : $res;
         return $res;
@@ -115,8 +174,13 @@
         return date_i18n( 'Y-m-d H:i:s ', current_time( 'timestamp' ));
     }
 
+    public function email_status( $template ) {
+        $status = ( empty( UM()->options()->get( "{$template}_on" ) )) ? 'Email NOT active' : 'Email active';
+        return $template . ' Template status: ' . $status;
+    }
 
 }
 
 new UM_Email_Log_Trace();
+
 
